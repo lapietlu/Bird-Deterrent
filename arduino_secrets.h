@@ -396,7 +396,7 @@ const char PAGE[] PROGMEM = R"rawliteral(
               <input type="file" id="filePick" accept=".wav,.mp3,.ogg,.flac,.aac" aria-hidden="true" />
               <div class="uz-icon" aria-hidden="true">🎵</div>
               <div class="uz-label">Tap to choose or drag &amp; drop</div>
-              <div class="uz-sub">WAV · MP3 · OGG · FLAC · AAC — one file at a time</div>
+              <div class="uz-sub">WAV — one file at a time</div>
             </div>
           </div>
 
@@ -862,6 +862,29 @@ const char PAGE[] PROGMEM = R"rawliteral(
       elNow.textContent   = nowIsoLocal();
     }
 
+    // ── Device playback request ───────────────────────────
+    // POSTs to /play with a filename. The device immediately starts
+    // playback, interrupting any currently playing audio.
+    // Used by both the Test button in the audio library table and
+    // the Play button in the hour-assign modal.
+    async function requestPlay(filename) {
+      try {
+        const res = await fetch("/play", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ filename })
+        });
+        if (!res.ok) {
+          const msg = await res.text().catch(() => "");
+          toast("Playback failed: " + (msg || "HTTP " + res.status));
+          return;
+        }
+        toast("▶ Playing: " + filename);
+      } catch(e) {
+        toast("Playback error: " + e.message);
+      }
+    }
+
     function renderAudioTable() {
       const tb = document.getElementById('audioTbody');
       if (!tb) return;
@@ -871,7 +894,6 @@ const char PAGE[] PROGMEM = R"rawliteral(
       }
       tb.innerHTML = audioFiles.map((a, idx) => {
         const sw = swatchClass(idx);
-        const canPreview = !!a.blobUrl;
         return `
           <tr>
             <td>
@@ -883,8 +905,8 @@ const char PAGE[] PROGMEM = R"rawliteral(
             <td class="mono">${escapeHtml(fmtBytes(a.bytes))}</td>
             <td>
               <div class="row" style="gap:8px">
-                <button class="btn secondary" data-act="test" data-id="${escapeHtml(a.id)}"
-                  ${canPreview ? "" : 'title="No preview — file is on USB only"'}
+                <button class="btn secondary" data-act="test" data-name="${escapeHtml(a.name)}"
+                  title="Play this file on the device immediately"
                 >Test</button>
               </div>
             </td>
@@ -1185,12 +1207,14 @@ const char PAGE[] PROGMEM = R"rawliteral(
       document.getElementById('saveSchedule').addEventListener('click', saveConfig);
 
       // Audio table actions
+      // Test button: immediately plays the file on the device via POST /play.
+      // Uses data-name (filename) rather than data-id since playback is
+      // device-side — no blobUrl or browser audio element needed.
       document.getElementById('audioTbody').addEventListener('click', e => {
         const btn = e.target.closest('button');
         if (!btn) return;
-        const id  = btn.dataset.id;
-        const act = btn.dataset.act;
-        if (act === 'test') openModalForAudioTest(id);
+        const act  = btn.dataset.act;
+        if (act === 'test') requestPlay(btn.dataset.name);
       });
 
       // ── Upload ────────────────────────────────────────────────
@@ -1364,11 +1388,31 @@ const char PAGE[] PROGMEM = R"rawliteral(
       document.getElementById('modal').addEventListener('click', e => {
         if (e.target.id === 'modal') closeModal();
       });
+
+      // Play button: behaviour depends on which modal panel is open.
+      // - 'assign' panel: play the file assigned to the current hour slot,
+      //   or show a notification if the slot is silent.
+      // - 'test' panel: retained for legacy browser-upload preview path,
+      //   but now also falls through to requestPlay if no blobUrl.
       document.getElementById('modalPlay').addEventListener('click', () => {
+        if (modalMode === 'assign') {
+          // Play the file assigned to the hour currently open in the modal
+          const filename = assignHour
+            ? schedule[assignHour.day][assignHour.hour]
+            : "";
+          if (!filename) {
+            toast("No audio file selected for this hour.");
+            return;
+          }
+          requestPlay(filename);
+          return;
+        }
+        // Legacy path: browser-upload preview via HTML audio element
         const player = document.getElementById('player');
         if (!player || !player.src) { toast('No preview (USB-only file)'); return; }
         player.play().catch(() => toast('Playback blocked'));
       });
+
       document.getElementById('modalStop').addEventListener('click', () => {
         const player = document.getElementById('player');
         if (player) { player.pause(); player.currentTime = 0; }

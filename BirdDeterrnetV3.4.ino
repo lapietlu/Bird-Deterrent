@@ -5,8 +5,9 @@
 //         Arduino_AdvancedAnalog 
 // ============================================================
 
-// Last updated by Luke Pietluck, 5/1/2026
-// Added explicatory comments to key features
+// Last updated by Luke Pietluck, 6/9/2026
+// Added in-browser playback for present USB .wav files through new POST method w/ handlePlay()
+// Updates to HTML to remove old instructions and implement functionality behind "Test" and "Play"
 
 // Keywords:
 // UPDATE: Temporary values, update before final version
@@ -35,18 +36,18 @@ struct HttpRequest {
 // Prototype required early because Arduino is being picky on struct types
 HttpRequest parseRequest(WiFiClient& client);
 
-// Device identity ─────────────────────────────────────────
+// Device identity ──────────────────────────────────────────
 const String SERIAL_NUM = "BD-2402-7A91C2";
 // Version five adds scheduled audio playback via DAC
 const String FIRMWARE   = "v0.5.0";
 
-// Network ─────────────────────────────────────────────────
+// Network ──────────────────────────────────────────────────
 // These are stored in the secrets file
 char ssid[] = SECRET_SSID;
 char pass[] = SECRET_PASS;
 WiFiServer server(80);
 
-// USB / Filesystem ────────────────────────────────────────
+// USB / Filesystem ─────────────────────────────────────────
 // Initialize library objects
 USBHostMSD  msd;
 mbed::FATFileSystem fs("usb");
@@ -59,7 +60,7 @@ bool usbMounted = false;
 #define CONFIG_PATH     "/usb/config.json"
 #define CONFIG_TMP_PATH "/usb/config.tmp"
 
-// RTC helpers ─────────────────────────────────────────────
+// RTC helpers ──────────────────────────────────────────────
 void rtcSetDefault() {
   // Default compile-time clock so the device isn't epoch-zero
   tm t = {};
@@ -83,7 +84,7 @@ String getLocaltime() {
   return String(buf);
 }
 
-// USB mount ───────────────────────────────────────────────
+// USB mount ────────────────────────────────────────────────
 // Returns true if the drive mounted successfully.
 // Call once after WiFi AP is up; retries a few times to give
 // the drive time to spin up.
@@ -109,7 +110,7 @@ bool mountUSB(uint8_t retries = 5, uint16_t delayMs = 1000) {
   return false;
 }
 
-// ── File listing ────────────────────────────────────────────
+// ── File listing ──────────────────────────────────────────
 // Walks /usb/ and streams a JSON array directly to the client.
 // Avoids DynamicJsonDocument entirely, no heap allocation limit,
 // no silent truncation if the pool is exhausted.
@@ -255,7 +256,7 @@ static bool readLine(WiFiClient& client, String& out,
   }
 }
 
-// Request parsing ─────────────────────────────────────────
+// Request parsing ──────────────────────────────────────────
 // Named HttpRequest (not Request) to avoid collision with mbed RTOS internals.
 // moved (struct and prototype are declared at top of file)
 
@@ -529,7 +530,7 @@ void handlePostConfig(WiFiClient& client, const String& body) {
 
 void handleUpload(WiFiClient& client, const String& contentType, long contentLength) {
 
-  // 1. Extract boundary ──────────────────────────────────
+  // 1. Extract boundary ────────────────────────────────────
   int bPos = contentType.indexOf("boundary=");
   if (bPos < 0) { sendText(client, 400, "Missing boundary"); return; }
   String boundary = "--" + contentType.substring(bPos + 9);
@@ -540,7 +541,7 @@ void handleUpload(WiFiClient& client, const String& contentType, long contentLen
 
   if (!usbMounted) { sendText(client, 503, "USB not mounted"); return; }
 
-  // 2. Read part-headers, measure framing overhead ───────
+  // 2. Read part-headers, measure framing overhead ─────────
   //
   // We count every byte consumed here so we can subtract from
   // contentLength to get the exact file byte count.
@@ -589,7 +590,7 @@ void handleUpload(WiFiClient& client, const String& contentType, long contentLen
 
   if (fileBytes <= 0) { sendText(client, 400, "Computed file size <= 0"); return; }
 
-  // 3. Clean filename and open file ───────────────────
+  // 3. Clean filename and open file ────────────────────────
   String safeName = "";
   for (char c : filename) {
     if (isAlphaNumeric(c) || c == '.' || c == '_' || c == '-') safeName += c;
@@ -602,7 +603,7 @@ void handleUpload(WiFiClient& client, const String& contentType, long contentLen
   FILE* fp = fopen(filepath.c_str(), "wb");
   if (!fp) { sendText(client, 500, "Cannot open file for writing"); return; }
 
-  // 4. Stream exactly fileBytes to disk ──────────────────
+  // 4. Stream exactly fileBytes to disk ────────────────────
   //
   // Read in WRITE_BUF chunks. tcpRead() handles the TCP idle gap
   // without delay()-per-byte overhead.
@@ -648,7 +649,7 @@ void handleUpload(WiFiClient& client, const String& contentType, long contentLen
 
   Serial.print("[UPLOAD] Bytes written: "); Serial.println(written);
 
-  // 5. Validate and respond ───────────────────────────────
+  // 5. Validate and respond ────────────────────────────────
   if (ioError || written != fileBytes) {
     Serial.print("[UPLOAD] Incomplete - removing. written=");
     Serial.print(written); Serial.print(" expected="); Serial.println(fileBytes);
@@ -672,6 +673,48 @@ void handleUpload(WiFiClient& client, const String& contentType, long contentLen
   String json;
   serializeJson(doc, json);
   sendJson(client, 200, json);
+}
+
+// POST /play body: { "filename": "hawk.wav" }
+// Immediately starts playback of the named file, interrupting any currently playing audio. 
+// Responds 200 on success, 4xx/5xx on error. The browser calls this from the Test button 
+// in the Audio Library section and the modal play button under clicking on an hour slot.
+void handlePlay(WiFiClient& client, const String& body) {
+  if (!usbMounted) {
+    sendText(client, 503, "USB not mounted");
+    return;
+  }
+
+  StaticJsonDocument<128> doc;
+  DeserializationError err = deserializeJson(doc, body);
+  if (err) {
+    sendText(client, 400, "Invalid JSON");
+    return;
+  }
+
+  String filename = doc["filename"].as<String>();
+  if (filename.length() == 0) {
+    sendText(client, 400, "Missing filename");
+    return;
+  }
+
+  // Verify file exists on USB before attempting to open the DAC
+  String filepath = "/usb/" + filename;
+  FILE* testFp = fopen(filepath.c_str(), "r");
+  if (!testFp) {
+    sendText(client, 404, "File not found on USB");
+    return;
+  }
+  fclose(testFp);
+
+  // startPlayback() calls stopPlayback() first if something is already playing, so this safely
+  // interrupts any current audio without leaving the DAC in a bad state.
+  if (!startPlayback(filename)) {
+    sendText(client, 500, "Playback failed to start");
+    return;
+  }
+
+  sendJson(client, 200, "{\"ok\":true}");
 }
 
 // Main page ────────────────────────────────────────────────
@@ -701,6 +744,7 @@ void routeRequest(WiFiClient& client) {
   else if (req.method == "POST" && req.path == "/config")    handlePostConfig(client, req.body);                        // Receive and persist schedule + do-not-play from website
   else if (req.method == "POST" && req.path == "/synctime")  handleSyncTime(client, req.body);                          // POST as client will post back to server the peripheral time
   else if (req.method == "POST" && req.path == "/upload")    handleUpload(client, req.contentType, req.contentLength);  // POST as audio file data is coming to the arduino
+  else if (req.method == "POST" && req.path == "/play")      handlePlay(client, req.body);                              // Immediately play a named file, interrupting current playback
   else if (req.method == "GET"  && req.path == "/")          handleRoot(client);                                        // Sends the webpage when needed
   else sendText(client, 404, "Not found");
 
@@ -711,20 +755,18 @@ void routeRequest(WiFiClient& client) {
 // Audio playback subsystem ─────────────────────────────────
 //
 // Design goals:
-//   1. Non-blocking - playbackTick() feeds one DAC buffer per call
-//      and returns immediately, so loop() stays responsive for WiFi.
-//   2. Single-file, play-once - startPlayback() opens a WAV file,
-//      stopPlayback() closes it cleanly.  The DAC is only initialised
-//      when a file is scheduled, then stopped when the file ends.
-//   3. Stereo WAV files are averaged to mono (same as the reference
-//      example) since a single DAC output (A12) is used.
+//   1. Non-blocking - playbackTick() feeds one DAC buffer per call and returns immediately, so 
+//      loop() stays responsive for WiFi.
+//   2. Single-file, play-once - startPlayback() opens a WAV file, stopPlayback() closes it cleanly.
+//      DAC only initialized when a file is scheduled, then stopped when the file ends.
+//   3. Stereo WAV files are averaged to mono (same as the reference example) since a single DAC 
+//      output (A12) is used.
 //
 // Hour-trigger logic:
-//   checkSchedule() is called from loop().  It reads the current RTC
-//   hour and compares against lastPlayedHour.  When the hour changes
-//   it looks up the schedule for that day/hour and, if a file is
-//   assigned and present on the USB drive, starts playback.
-//   Future models will replace this with an API alarm.
+//   checkSchedule() is called from loop(). It reads the current RTC hour and compares against
+//   lastPlayedHour. When the hour changes it looks up the schedule for that day/hour and, if a 
+//   file is assigned and present on the USB drive, starts playback. Future models will replace
+//   this with an API alarm.
 
 #define DAC_PIN       A12
 #define DAC_N_SAMPLES 512   // DMA buffer size - must match wavreader.begin()
