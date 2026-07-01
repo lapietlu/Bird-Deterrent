@@ -5,9 +5,13 @@
 //         Arduino_AdvancedAnalog 
 // ============================================================
 
-// Last updated by Luke Pietluck, 6/9/2026
-// Added in-browser playback for present USB .wav files through new POST method w/ handlePlay()
-// Updates to HTML to remove old instructions and implement functionality behind "Test" and "Play"
+// Last updated by Luke Pietluck, 6/21/2026
+// Added mbed hardware watchdog (WDT_TIMEOUT_MS = 8000 ms).
+// Watchdog is started at the end of setup() after all slow init completes.
+// loop() kicks the watchdog first on every iteration.
+// tcpRead() kicks on every idle yield so long TCP waits don't trigger a reset.
+// handleUpload() kicks once per 4 KB chunk so large file writes don't trigger a reset.
+// Reset-cause check on boot reports WDT resets to Serial for field diagnostics.
 
 // Keywords:
 // UPDATE: Temporary values, update before final version
@@ -21,7 +25,15 @@
 #include <Arduino_AdvancedAnalog.h>    // DAC + WavReader
 #include "mbed.h"
 #include "mbed_mktime.h"
+#include "drivers/Watchdog.h"          // mbed hardware watchdog
+#include "hal/reset_reason_api.h"      // reset cause register
 #include "arduino_secrets.h"           // SECRET_SSID / SECRET_PASS
+
+// Watchdog ─────────────────────────────────────────────────
+// Hardware watchdog timeout. loop() must kick the WDT faster than
+// this or the CPU resets. 8 s gives ample margin for a slow HTTP
+// parse or USB read without being too long to recover from a hang.
+#define WDT_TIMEOUT_MS 8000
 
 // Struct defined early due to compilation errors
 struct HttpRequest {
@@ -38,8 +50,8 @@ HttpRequest parseRequest(WiFiClient& client);
 
 // Device identity ──────────────────────────────────────────
 const String SERIAL_NUM = "BD-2402-7A91C2";
-// Version five adds scheduled audio playback via DAC
-const String FIRMWARE   = "v0.5.0";
+// Version five adds scheduled audio playback via DAC; 3_5 adds hardware watchdog
+const String FIRMWARE   = "v0.5.1";
 
 // Network ──────────────────────────────────────────────────
 // These are stored in the secrets file
@@ -230,7 +242,9 @@ static int tcpRead(WiFiClient& client, uint8_t* buf, int want,
     } else {
       if (!client.connected())                break;
       if (millis() - lastByte > idleTimeoutMs) break;
-      // TCP buffer dry, yield one tick then retry
+      // TCP buffer dry – kick the watchdog so a slow sender never
+      // triggers a reset, then yield one tick and retry.
+      mbed::Watchdog::get_instance().kick();
       delay(1);
     }
   }
@@ -353,6 +367,21 @@ void handleSettings(WiFiClient& client) {
   String json;
   serializeJson(doc, json);
   sendJson(client, 200, json);
+}
+
+// POST /mountusb
+// Re-attempts USB mount at runtime (e.g. after the retry button is tapped).
+// Updates the global usbMounted flag and reloads the schedule if successful.
+// Returns { "mounted": true/false } so the frontend can update its status.
+void handleMountUsb(WiFiClient& client) {
+  if (usbMounted) {
+    // Already mounted, nothing to do
+    sendJson(client, 200, "{\"mounted\":true}");
+    return;
+  }
+  usbMounted = mountUSB();
+  if (usbMounted) loadScheduleFromConfig();
+  sendJson(client, 200, usbMounted ? "{\"mounted\":true}" : "{\"mounted\":false}");
 }
 
 // GET /files, streams JSON array of audio files on USB
@@ -630,6 +659,10 @@ void handleUpload(WiFiClient& client, const String& contentType, long contentLen
       size_t w = fwrite(buf, 1, got, fp);
       written   += (long)w;
       remaining -= (long)got;
+      // Kick the watchdog after each chunk – large uploads take far longer
+      // than WDT_TIMEOUT_MS and tcpRead() kicks during TCP idle gaps, but
+      // a fast sender that keeps tcpRead() busy would not kick otherwise.
+      mbed::Watchdog::get_instance().kick();
       if ((int)w != got) {
         Serial.println("[UPLOAD] fwrite error");
         ioError = true; break;
@@ -745,6 +778,7 @@ void routeRequest(WiFiClient& client) {
   else if (req.method == "POST" && req.path == "/synctime")  handleSyncTime(client, req.body);                          // POST as client will post back to server the peripheral time
   else if (req.method == "POST" && req.path == "/upload")    handleUpload(client, req.contentType, req.contentLength);  // POST as audio file data is coming to the arduino
   else if (req.method == "POST" && req.path == "/play")      handlePlay(client, req.body);                              // Immediately play a named file, interrupting current playback
+  else if (req.method == "POST" && req.path == "/mountusb")  handleMountUsb(client);                                    // Re-attempt USB mount after hot-plug
   else if (req.method == "GET"  && req.path == "/")          handleRoot(client);                                        // Sends the webpage when needed
   else sendText(client, 404, "Not found");
 
@@ -992,9 +1026,22 @@ void checkSchedule() {
 // setup / loop ─────────────────────────────────────────────
 void setup() {
   Serial.begin(9600);
-  while (!Serial) { /* wait for USB-CDC */ }
+  // while (!Serial) // For development only, otherwise serial hotplug is functional
 
   Serial.println("=== Bird Deterrent starting ===");
+
+  // Report reset cause so WDT resets are visible in field diagnostics.
+  // RESET_REASON_WATCHDOG means the previous run hung and the hardware
+  // reset the CPU – worth noting in the log.
+  {
+    reset_reason_t reason = hal_reset_reason_get();
+    if (reason == RESET_REASON_WATCHDOG) {
+      Serial.println("[WDT] ** Recovered from watchdog reset **");
+    } else {
+      Serial.print("[WDT] Reset reason: ");
+      Serial.println((int)reason);
+    }
+  }
 
   // Begin RTC
   rtcSetDefault();
@@ -1032,6 +1079,14 @@ void setup() {
   server.begin();
   Serial.print("Server at http://");
   Serial.println(WiFi.localIP());
+
+  // Start the hardware watchdog LAST – after all slow initialisation is
+  // complete (WiFi AP, USB mount, config load).  From this point on,
+  // loop() must kick the WDT within WDT_TIMEOUT_MS or the CPU resets.
+  mbed::Watchdog::get_instance().start(WDT_TIMEOUT_MS);
+  Serial.print("[WDT] Watchdog started (");
+  Serial.print(WDT_TIMEOUT_MS);
+  Serial.println(" ms)");
 }
 
 // Our loop monitors the client to ensure server connection;
@@ -1039,6 +1094,10 @@ void setup() {
 // playbackTick() feeds the DAC non-blockingly on every iteration.
 // checkSchedule() fires at most once per hour (cheap RTC comparison).
 void loop() {
+  // Kick the hardware watchdog first – if any subsequent call stalls
+  // longer than WDT_TIMEOUT_MS without returning here, the CPU resets.
+  mbed::Watchdog::get_instance().kick();
+
   // Feed DAC if playback is active, must run every iteration
   playbackTick();
 

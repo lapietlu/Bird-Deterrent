@@ -72,26 +72,6 @@ const char PAGE[] PROGMEM = R"rawliteral(
     header{display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:10px 4px 14px; position:relative;}
     .brand{display:flex; flex-direction:column; gap:8px;}
     .title{display:flex; align-items:center; gap:12px;}
-    .logo{
-      width:44px; height:44px;
-      border-radius: 18px 18px 18px 4px;
-      background: linear-gradient(135deg, rgba(47,111,85,.95), rgba(58,110,165,.88));
-      border:var(--bw) solid var(--fg);
-      box-shadow:var(--shadow-pop);
-      position:relative;
-      overflow:hidden;
-      flex:0 0 auto;
-    }
-    .logo:after{
-      content:"";
-      position:absolute;
-      left:10px; top:10px;
-      width:10px; height:10px;
-      border-radius:var(--r-full);
-      background:rgba(255,255,255,.90);
-      box-shadow: 14px 2px 0 rgba(255,255,255,.90), 6px 16px 0 rgba(255,255,255,.90), 20px 18px 0 rgba(255,255,255,.90);
-      opacity:.85;
-    }
     h1{font-family:var(--heading); font-size:16px; line-height:1.15; margin:0; letter-spacing:.2px; font-weight:800;}
     .sub{font-size:12px; color:var(--mutedFg); line-height:1.25; max-width:54ch;}
     .chips{display:flex; gap:8px; flex-wrap:wrap;}
@@ -312,7 +292,166 @@ const char PAGE[] PROGMEM = R"rawliteral(
     <header>
       <div class="brand">
         <div class="title">
-          <div class="logo" aria-hidden="true"></div>
+          <svg
+            version="1.1"
+            id="svg1"
+            width="64"
+            height="64"
+            viewBox="0 0 816 816"
+            xmlns:xlink="http://www.w3.org/1999/xlink"
+            xmlns="http://www.w3.org/2000/svg"
+            xmlns:svg="http://www.w3.org/2000/svg">
+            <defs
+              id="defs1">
+              <color-profile
+                name="sRGB IEC61966-2.1"
+                xlink:href="data:application/vnd.iccprofile;base64,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"
+                id="color-profile2" />
+              <clipPath
+                clipPathUnits="userSpaceOnUse"
+                id="clipPath3">
+                <path
+                  d="M 0,612 H 612 V 0 H 0 Z"
+                  transform="translate(-432.09101,-302.81071)"
+                  id="path3" />
+              </clipPath>
+              <clipPath
+                clipPathUnits="userSpaceOnUse"
+                id="clipPath5">
+                <path
+                  d="M 0,612 H 612 V 0 H 0 Z"
+                  transform="translate(-435.13601,-101.8722)"
+                  id="path5" />
+              </clipPath>
+              <clipPath
+                clipPathUnits="userSpaceOnUse"
+                id="clipPath7">
+                <path
+                  d="M 0,612 H 612 V 0 H 0 Z"
+                  transform="translate(-308.92921,-55.793499)"
+                  id="path7" />
+              </clipPath>
+              <clipPath
+                clipPathUnits="userSpaceOnUse"
+                id="clipPath9">
+                <path
+                  d="M 0,612 H 612 V 0 H 0 Z"
+                  transform="translate(-414.66961,-55.793499)"
+                  id="path9" />
+              </clipPath>
+              <clipPath
+                clipPathUnits="userSpaceOnUse"
+                id="clipPath11">
+                <path
+                  d="M 0,612 H 612 V 0 H 0 Z"
+                  transform="translate(-343.46391,-138.2355)"
+                  id="path11" />
+              </clipPath>
+              <clipPath
+                clipPathUnits="userSpaceOnUse"
+                id="clipPath13">
+                <path
+                  d="M 0,612 H 612 V 0 H 0 Z"
+                  transform="translate(-297.53451,-229.18221)"
+                  id="path13" />
+              </clipPath>
+              <clipPath
+                clipPathUnits="userSpaceOnUse"
+                id="clipPath15">
+                <path
+                  d="M 0,612 H 612 V 0 H 0 Z"
+                  transform="translate(-406.56561,-402.41821)"
+                  id="path15" />
+              </clipPath>
+              <clipPath
+                clipPathUnits="userSpaceOnUse"
+                id="clipPath17">
+                <path
+                  d="M 0,612 H 612 V 0 H 0 Z"
+                  transform="translate(-397.43801,-397.49331)"
+                  id="path17" />
+              </clipPath>
+              <clipPath
+                clipPathUnits="userSpaceOnUse"
+                id="clipPath19">
+                <path
+                  d="M 0,612 H 612 V 0 H 0 Z"
+                  transform="translate(-341.44221,-496.48721)"
+                  id="path19" />
+              </clipPath>
+              <clipPath
+                clipPathUnits="userSpaceOnUse"
+                id="clipPath21">
+                <path
+                  d="M 0,612 H 612 V 0 H 0 Z"
+                  transform="translate(-451.30571,-377.59101)"
+                  id="path21" />
+              </clipPath>
+            </defs>
+            <g
+              id="layer-MC0">
+              <path
+                id="path2"
+                d="m 0,0 h -195.034 c -7.461,0 -13.509,6.048 -13.509,13.509 v 160.855 c 0,7.461 6.048,13.509 13.509,13.509 H 0 c 7.461,0 13.509,-6.048 13.509,-13.509 V 13.509 C 13.509,6.048 7.461,0 0,0"
+                style="fill:#000000;fill-opacity:1;fill-rule:nonzero;stroke:none"
+                transform="matrix(1.3333333,0,0,-1.3333333,576.12133,412.2524)"
+                clip-path="url(#clipPath3)" />
+              <path
+                id="path4"
+                d="m 0,0 h -269.721 c -8.519,0 -15.426,6.906 -15.426,15.426 v 158.14 c 0,8.519 6.907,15.426 15.426,15.426 H 0 c 8.519,0 15.426,-6.907 15.426,-15.426 V 15.426 C 15.426,6.906 8.519,0 0,0"
+                style="fill:#000000;fill-opacity:1;fill-rule:nonzero;stroke:none"
+                transform="matrix(1.3333333,0,0,-1.3333333,580.18133,680.1704)"
+                clip-path="url(#clipPath5)" />
+              <path
+                id="path6"
+                d="m 0,0 h -54.451 c -1.639,0 -2.968,1.329 -2.968,2.969 v 28.73 c 0,1.639 1.329,2.968 2.968,2.968 H 0 c 1.639,0 2.969,-1.329 2.969,-2.968 V 2.969 C 2.969,1.329 1.639,0 0,0"
+                style="fill:#c49c3d;fill-opacity:1;fill-rule:nonzero;stroke:none"
+                transform="matrix(1.3333333,0,0,-1.3333333,411.9056,741.60867)"
+                clip-path="url(#clipPath7)" />
+              <path
+                id="path8"
+                d="m 0,0 h -54.451 c -1.639,0 -2.968,1.329 -2.968,2.969 v 28.73 c 0,1.639 1.329,2.968 2.968,2.968 H 0 c 1.639,0 2.969,-1.329 2.969,-2.968 V 2.969 C 2.969,1.329 1.639,0 0,0"
+                style="fill:#c49c3d;fill-opacity:1;fill-rule:nonzero;stroke:none"
+                transform="matrix(1.3333333,0,0,-1.3333333,552.8928,741.60867)"
+                clip-path="url(#clipPath9)" />
+              <path
+                id="path10"
+                d="m 0,0 -157.8,-0.79 c -2.25,0 -4.073,1.823 -4.073,4.072 l -0.001,96.193 C -161.874,101.724 2.249,0 0,0"
+                style="fill:#c49c3d;fill-opacity:1;fill-rule:nonzero;stroke:none"
+                transform="matrix(1.3333333,0,0,-1.3333333,457.95187,631.686)"
+                clip-path="url(#clipPath11)" />
+              <path
+                id="path12"
+                d="m 0,0 c 28.704,-21.811 42.48,-55.372 45.929,-90.947 0,0 -105.011,17.254 -161.873,99.475 0.812,2.935 16.648,9.268 18.625,9.88 10.105,3.128 21.138,4.185 31.675,3.997 C -44.657,22.029 -23.729,15.846 -6.141,4.334 -4.022,2.947 -1.976,1.501 0,0"
+                style="fill:#eeca6d;fill-opacity:1;fill-rule:nonzero;stroke:none"
+                transform="matrix(1.3333333,0,0,-1.3333333,396.71267,510.42373)"
+                clip-path="url(#clipPath13)" />
+              <path
+                id="path14"
+                d="m 0,0 c 0,-13.387 -10.852,-24.239 -24.239,-24.239 -13.386,0 -24.238,10.852 -24.238,24.239 0,13.387 10.852,24.239 24.238,24.239 C -10.852,24.239 0,13.387 0,0"
+                style="fill:#ffffff;fill-opacity:1;fill-rule:nonzero;stroke:none"
+                transform="matrix(1.3333333,0,0,-1.3333333,542.08747,279.4424)"
+                clip-path="url(#clipPath15)" />
+              <path
+                id="path16"
+                d="m 0,0 c 0,-5.298 -4.295,-9.593 -9.593,-9.593 -5.298,0 -9.593,4.295 -9.593,9.593 0,5.298 4.295,9.593 9.593,9.593 C -4.295,9.593 0,5.298 0,0"
+                style="fill:#000000;fill-opacity:1;fill-rule:nonzero;stroke:none"
+                transform="matrix(1.3333333,0,0,-1.3333333,529.91733,286.00893)"
+                clip-path="url(#clipPath17)" />
+              <path
+                id="path18"
+                d="m 0,0 -38.829,42.378 c 4.301,6.298 4.73,14.814 0.4,21.658 -5.808,9.175 -18.003,11.908 -27.169,6.106 -4.445,-2.814 -7.528,-7.188 -8.68,-12.32 -1.154,-5.132 -0.241,-10.405 2.573,-14.849 2.814,-4.445 7.189,-7.528 12.32,-8.68 1.448,-0.328 2.907,-0.487 4.357,-0.487 3.351,0 6.632,0.904 9.6,2.579 l 33.463,-36.522 z"
+                style="fill:#c49c3d;fill-opacity:1;fill-rule:nonzero;stroke:none"
+                transform="matrix(1.3333333,0,0,-1.3333333,455.25627,154.01707)"
+                clip-path="url(#clipPath19)" />
+              <path
+                id="path20"
+                d="M 0,0 H 39.321 C 39.321,0 32.761,32.213 0,49.654 Z"
+                style="fill:#c49c3d;fill-opacity:1;fill-rule:nonzero;stroke:none"
+                transform="matrix(1.3333333,0,0,-1.3333333,601.74093,312.54533)"
+                clip-path="url(#clipPath21)" />
+            </g>
+          </svg>
           <div>
             <h1>Audible Deterrent Control Panel</h1>
             <div class="sub">Schedule, audio library, and device time — designed for field setup on mobile.</div>
@@ -1364,16 +1503,42 @@ const char PAGE[] PROGMEM = R"rawliteral(
       // Retry USB
       document.getElementById('retryUsb').addEventListener('click', async () => {
         toast('Checking USB drive…');
-        await refreshFileList();
+        // Ask the device to re-attempt mounting the USB drive,
+        // then refresh the file list and config if it succeeded.
+        try {
+          const res  = await fetch('/mountusb', { method: 'POST' });
+          const data = await res.json();
+          if (data.mounted) {
+            await refreshFileList();
+            await loadConfig();
+            toast('USB drive mounted — file list updated');
+          } else {
+            updateUsbStatus(false);
+            toast('USB drive still not detected');
+          }
+        } catch(_) {
+          toast('Retry failed (offline?)');
+        }
       });
 
       // Time controls
       document.getElementById('syncLocal').addEventListener('click', syncTime);
-      document.getElementById('applyTime').addEventListener('click', () => {
+      document.getElementById('applyTime').addEventListener('click', async () => {
         const date = document.getElementById('dtDate').value;
         const time = document.getElementById('dtTime').value;
         if (!date || !time) { toast('Set date and time'); return; }
-        toast('Time applied');
+        const [year, month, day]     = date.split('-').map(Number);
+        const [hour, minute, second] = time.split(':').map(Number);
+        try {
+          await fetch('/synctime', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ year, month, day, hour, minute, second: second || 0 })
+          });
+          toast('Time applied');
+        } catch(_) {
+          toast('Apply failed (offline?)');
+        }
       });
 
       // Open time modal
