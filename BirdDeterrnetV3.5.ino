@@ -5,7 +5,7 @@
 //         Arduino_AdvancedAnalog 
 // ============================================================
 
-// Last updated by Luke Pietluck, 6/21/2026
+// Last updated by Dan Burns, 9/19/2026
 // Added mbed hardware watchdog (WDT_TIMEOUT_MS = 8000 ms).
 // Watchdog is started at the end of setup() after all slow init completes.
 // loop() kicks the watchdog first on every iteration.
@@ -750,6 +750,15 @@ void handlePlay(WiFiClient& client, const String& body) {
   sendJson(client, 200, "{\"ok\":true}");
 }
 
+// POST /stop
+// Immediately halts audio playback, stops the DAC and WAV reader, and resets playback state.
+// Responds 200 on success. The browser calls this from the Stop button in the web interface.
+void handleStop(WiFiClient& client) {
+  stopPlayback();
+  sendJson(client, 200, "{\"ok\":true}");
+}
+
+
 // Main page ────────────────────────────────────────────────
 // The full HTML/CSS/JS page is stored in flash as a raw string.
 // Keep it in a separate file (page.h) and #include it here.
@@ -778,6 +787,7 @@ void routeRequest(WiFiClient& client) {
   else if (req.method == "POST" && req.path == "/synctime")  handleSyncTime(client, req.body);                          // POST as client will post back to server the peripheral time
   else if (req.method == "POST" && req.path == "/upload")    handleUpload(client, req.contentType, req.contentLength);  // POST as audio file data is coming to the arduino
   else if (req.method == "POST" && req.path == "/play")      handlePlay(client, req.body);                              // Immediately play a named file, interrupting current playback
+  else if (req.method == "POST" && req.path == "/stop")      handleStop(client);                                        // Immediately stop playback and reset audio state
   else if (req.method == "POST" && req.path == "/mountusb")  handleMountUsb(client);                                    // Re-attempt USB mount after hot-plug
   else if (req.method == "GET"  && req.path == "/")          handleRoot(client);                                        // Sends the webpage when needed
   else sendText(client, 404, "Not found");
@@ -839,19 +849,25 @@ void loadScheduleFromConfig() {
   }
 
   // Read entire file into a String for ArduinoJson parsing.
-  // Config is < 8 KB so this is safe.
   fseek(fp, 0, SEEK_END);
   long sz = ftell(fp);
   rewind(fp);
 
   char* buf = (char*)malloc(sz + 1);
-  if (!buf) { fclose(fp); Serial.println("[SCHED] OOM reading config"); return; }
+  if (!buf) { 
+    fclose(fp); 
+    Serial.println("[SCHED] OOM reading config"); 
+    return; 
+  }
   fread(buf, 1, sz, fp);
   buf[sz] = '\0';
   fclose(fp);
 
-  DynamicJsonDocument doc(8192);
+  // 2048 to 4096 bytes is sufficient for parsing scheduleMatrix
+  DynamicJsonDocument doc(4096);
   DeserializationError err = deserializeJson(doc, buf);
+  
+  // FREE BUF IMMEDIATELY to reclaim heap memory before populating matrix
   free(buf);
 
   if (err) {
@@ -968,36 +984,39 @@ void checkSchedule() {
   uint8_t currentHour = (uint8_t)t.tm_hour;
   if (currentHour == lastPlayedHour) return; // same hour, nothing to do
   lastPlayedHour = currentHour;
-
+  
   // tm_wday: 0=Sunday … 6=Saturday.
   // scheduleMatrix uses 0=Monday … 6=Sunday to match the web UI.
   // Convert: (tm_wday + 6) % 7  maps Sun(0)->6, Mon(1)->0, … Sat(6)->5
   int dayIndex = (t.tm_wday + 6) % 7;
 
   // Check do-not-play list in config.json
-  // Build today's date string (YYYY-MM-DD) for comparison
+  // Build today's date string YYYY-MM-DD for comparison
   char todayStr[11];
   snprintf(todayStr, sizeof(todayStr), "%04d-%02d-%02d",
            t.tm_year + 1900, t.tm_mon + 1, t.tm_mday);
 
-  // Quick scan of the raw JSON for the date, avoids a full re-parse
-  // CAUTION: This is a simple string search. It will match partial
-  // dates if a note happens to contain the date string. For production
-  // a proper JSON parse of the doNotPlay array would be more robust.
-  // TODO: Parse doNotPlay properly once tested.
+  // Check do-not-play list without line-buffer limits
   FILE* fp = fopen(CONFIG_PATH, "r");
   if (fp) {
-    char jsonBuf[256];
-    bool dnpMatch = false;
-    while (fgets(jsonBuf, sizeof(jsonBuf), fp)) {
-      if (strstr(jsonBuf, todayStr)) { dnpMatch = true; break; }
+    fseek(fp, 0, SEEK_END);
+    long sz = ftell(fp);
+    rewind(fp);
+
+    char* jsonBuf = (char*)malloc(sz + 1);
+    if (jsonBuf) {
+      fread(jsonBuf, 1, sz, fp);
+      jsonBuf[sz] = '\0';
+      if (strstr(jsonBuf, todayStr)) {
+        Serial.print("[SCHED] Do-not-play date matched: ");
+        Serial.println(todayStr);
+        free(jsonBuf);
+        fclose(fp);
+        return;
+      }
+      free(jsonBuf);
     }
     fclose(fp);
-    if (dnpMatch) {
-      Serial.print("[SCHED] Do-not-play date matched: ");
-      Serial.println(todayStr);
-      return;
-    }
   }
 
   String filename = scheduleMatrix[dayIndex][currentHour];
