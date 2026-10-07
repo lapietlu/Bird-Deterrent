@@ -5,13 +5,13 @@
 //         Arduino_AdvancedAnalog 
 // ============================================================
 
-// Last updated by Dan Burns, 9/19/2026
-// Added mbed hardware watchdog (WDT_TIMEOUT_MS = 8000 ms).
-// Watchdog is started at the end of setup() after all slow init completes.
-// loop() kicks the watchdog first on every iteration.
-// tcpRead() kicks on every idle yield so long TCP waits don't trigger a reset.
-// handleUpload() kicks once per 4 KB chunk so large file writes don't trigger a reset.
-// Reset-cause check on boot reports WDT resets to Serial for field diagnostics.
+// Last updated by Dan Burns, 10/7/2026
+// Refactored loadScheduleFromConfig() to prevent heap exhaustion (Out of Memory / OOM).
+// Allocates temporary heap buffer to read raw config.json file from USB storage.
+// Parses JSON contents into DynamicJsonDocument (4096 bytes).
+// Immediately frees raw file buffer (free(buf)) before matrix population to reclaim RAM.
+// Populates scheduleMatrix[7][24] safely without exceeding available heap memory.
+// Stop function actually works now on the website when playing an audio
 
 // Keywords:
 // UPDATE: Temporary values, update before final version
@@ -278,7 +278,7 @@ HttpRequest parseRequest(WiFiClient& client) {
   HttpRequest req;
   bool headersDone = false;
 
-  // Header parsing for HTTP request, body read below
+  // Header parsing for HTTP request
   while (client.connected()) {
     if (!client.available()) continue;
 
@@ -288,24 +288,19 @@ HttpRequest parseRequest(WiFiClient& client) {
 
     if (!headersDone) {
       if (line.length() == 0) {
-        // Blank line = end of headers, body handled after loop
+        // Blank line = end of headers
         headersDone = true;
         break;
       }
 
       // First line: "GET /path?query HTTP/1.1"
-      // If method is empty, it's our first iteration
-      // No version extraction because we can expect that to be constant
       if (req.method.length() == 0) {
         int s1 = line.indexOf(' ');
         int s2 = line.indexOf(' ', s1 + 1);
-        // Make sure the line is formatted correctly
         if (s1 > 0 && s2 > s1) {
-          // Method assignment
           req.method = line.substring(0, s1);
           String fullPath = line.substring(s1 + 1, s2);
           int q = fullPath.indexOf('?');
-          // If there is a query (text after PATH) then add to query member
           if (q >= 0) {
             req.path  = fullPath.substring(0, q);
             req.query = fullPath.substring(q + 1);
@@ -316,32 +311,50 @@ HttpRequest parseRequest(WiFiClient& client) {
       }
 
       // Content-Length header
-      if (line.startsWith("Content-Length:")) {
-        req.contentLength = line.substring(15).toInt();
+      if (line.startsWith("Content-Length:") || line.startsWith("content-length:")) {
+        req.contentLength = line.substring(line.indexOf(':') + 1).toInt();
       }
 
-      // Content-Type header (needed for multipart boundary)
-      if (line.startsWith("Content-Type:")) {
-        req.contentType = line.substring(13);
+      // Content-Type header
+      if (line.startsWith("Content-Type:") || line.startsWith("content-type:")) {
+        req.contentType = line.substring(line.indexOf(':') + 1);
         req.contentType.trim();
       }
     }
   }
 
-  // For multipart uploads we do NOT buffer the body here -
-  // handleUpload reads the stream directly after headers.
-  // For all other POST bodies (JSON, etc.) read into a char buffer
-  // then assign to String - much faster than byte-by-byte append.
-  // Capped at 32 KB to protect heap, config JSON is < 8 KB in practice.
-  if (req.method == "POST" && req.contentLength > 0
-      && req.contentType.indexOf("multipart") < 0) {
+  // Read full body payload for non-multipart POST requests
+  if (req.method == "POST" && req.contentLength > 0 && req.contentType.indexOf("multipart") < 0) {
     long toRead = min(req.contentLength, 32768L);
     char* buf   = (char*)malloc(toRead + 1);
+
     if (buf) {
-      int got  = tcpRead(client, (uint8_t*)buf, (int)toRead, 8000);
-      buf[got] = '\0';
+      int totalRead = 0;
+      unsigned long startTime = millis();
+
+      // Read until buffer is filled or timeout reached (2 seconds)
+      while (totalRead < toRead && (millis() - startTime < 2000)) {
+        if (client.available()) {
+          int readNow = client.read((uint8_t*)(buf + totalRead), toRead - totalRead);
+          if (readNow > 0) {
+            totalRead += readNow;
+          }
+        } else if (!client.connected()) {
+          break;
+        }
+      }
+
+      buf[totalRead] = '\0';
       req.body = String(buf);
       free(buf);
+
+      // Log raw payload for debugging JSON issues
+      Serial.print("[HTTP] Received POST body (bytes ");
+      Serial.print(totalRead);
+      Serial.print("/");
+      Serial.print(toRead);
+      Serial.print("): ");
+      Serial.println(req.body);
     }
   }
 
@@ -364,6 +377,16 @@ void handleSettings(WiFiClient& client) {
   doc["time"]       = getLocaltime();
   doc["usbMounted"] = usbMounted;
 
+  String json;
+  serializeJson(doc, json);
+  sendJson(client, 200, json);
+}
+
+// GET /time -> returns current board RTC timestamp
+void handleGetTime(WiFiClient& client) {
+  StaticJsonDocument<128> doc;
+  doc["time"] = getLocaltime();
+  
   String json;
   serializeJson(doc, json);
   sendJson(client, 200, json);
@@ -700,6 +723,8 @@ void handleUpload(WiFiClient& client, const String& contentType, long contentLen
 
   Serial.print("[UPLOAD] Done: "); Serial.println(safeName);
 
+  loadScheduleFromConfig(); //Ensures internal matrix updates immediately after uploads
+
   StaticJsonDocument<128> doc;
   doc["name"]  = safeName;
   doc["bytes"] = written;
@@ -750,14 +775,178 @@ void handlePlay(WiFiClient& client, const String& body) {
   sendJson(client, 200, "{\"ok\":true}");
 }
 
+// Playback state need to be declared before use
+static bool   playbackActive = false;
+static String playbackFile   = "";   // currently open file path
+
+
 // POST /stop
 // Immediately halts audio playback, stops the DAC and WAV reader, and resets playback state.
 // Responds 200 on success. The browser calls this from the Stop button in the web interface.
 void handleStop(WiFiClient& client) {
+  while (client.available()) {
+    client.read();
+  }
+
   stopPlayback();
   sendJson(client, 200, "{\"ok\":true}");
 }
 
+// POST /delete body options:
+// 1) {"filename": "hawk.wav"}
+// 2) {"name": "hawk.wav"}
+// 3) "hawk.wav"
+void handleDeleteFile(WiFiClient& client, const String& body) {
+  if (!usbMounted) {
+    sendJson(client, 503, "{\"error\":\"USB not mounted\"}");
+    return;
+  }
+
+  Serial.print("[DELETE] Received body: ");
+  Serial.println(body);
+
+  StaticJsonDocument<512> doc;
+  DeserializationError err = deserializeJson(doc, body);
+
+  String filename = "";
+
+  if (!err) {
+    if (doc.is<JsonObject>()) {
+      // Check object keys
+      if (doc.containsKey("filename")) {
+        filename = doc["filename"].as<String>();
+      } else if (doc.containsKey("name")) {
+        filename = doc["name"].as<String>();
+      } else if (doc.containsKey("file")) {
+        filename = doc["file"].as<String>();
+      } else if (doc.containsKey("files") && doc["files"].is<JsonArray>()) {
+        // Handle array inside "files" key: {"files":["Pred1Hr.wav"]}
+        JsonArray arr = doc["files"].as<JsonArray>();
+        if (arr.size() > 0) {
+          filename = arr[0].as<String>();
+        }
+      } else if (doc.containsKey("filenames") && doc["filenames"].is<JsonArray>()) {
+        JsonArray arr = doc["filenames"].as<JsonArray>();
+        if (arr.size() > 0) {
+          filename = arr[0].as<String>();
+        }
+      }
+    } else if (doc.is<JsonArray>()) {
+      // Handle raw array: ["Pred1Hr.wav"]
+      JsonArray arr = doc.as<JsonArray>();
+      if (arr.size() > 0) {
+        filename = arr[0].as<String>();
+      }
+    } else if (doc.is<const char*>()) {
+      filename = doc.as<String>();
+    }
+  }
+
+  filename.trim();
+
+  if (filename.length() == 0) {
+    sendJson(client, 400, "{\"error\":\"Invalid request body - missing filename\"}");
+    return;
+  }
+
+  // Path traversal safety check
+  if (filename.indexOf("..") >= 0 || filename.indexOf("/") >= 0) {
+    sendJson(client, 400, "{\"error\":\"Invalid filename path\"}");
+    return;
+  }
+
+  String filepath = "/usb/" + filename;
+
+  // Stop active audio if target file is currently playing
+  if (playbackActive && playbackFile == filename) {
+    stopPlayback();
+  }
+
+  if (remove(filepath.c_str()) == 0) {
+    Serial.print("[FILE] Successfully deleted: "); 
+    Serial.println(filepath);
+
+    loadScheduleFromConfig(); // Sync schedule matrix state
+    sendJson(client, 200, "{\"ok\":true}");
+  } else {
+    Serial.print("[FILE] Failed to delete from disk: "); 
+    Serial.println(filepath);
+    sendJson(client, 500, "{\"error\":\"Failed to delete file from disk\"}");
+  }
+}
+
+// POST /delete-batch
+// Body format A: {"filenames": ["hawk.wav", "crow.wav"]}
+// Body format B: ["hawk.wav", "crow.wav"]
+void handleDeleteFiles(WiFiClient& client, const String& body) {
+  if (!usbMounted) {
+    sendJson(client, 503, "{\"error\":\"USB not mounted\"}");
+    return;
+  }
+
+  Serial.print("[BATCH DELETE] Received body: ");
+  Serial.println(body);
+
+  StaticJsonDocument<2048> doc;
+  DeserializationError err = deserializeJson(doc, body);
+
+  if (err) {
+    Serial.print("[BATCH DELETE] JSON Parse error: ");
+    Serial.println(err.c_str());
+    sendJson(client, 400, "{\"error\":\"Invalid JSON body\"}");
+    return;
+  }
+
+  JsonArray filenames;
+
+  if (doc.is<JsonArray>()) {
+    filenames = doc.as<JsonArray>();
+  } else if (doc.is<JsonObject>() && doc.containsKey("filenames")) {
+    filenames = doc["filenames"].as<JsonArray>();
+  } else if (doc.is<JsonObject>() && doc.containsKey("files")) {
+    filenames = doc["files"].as<JsonArray>();
+  } else {
+    sendJson(client, 400, "{\"error\":\"Invalid request body structure\"}");
+    return;
+  }
+
+  int deletedCount = 0;
+
+  for (JsonVariant f : filenames) {
+    String filename = "";
+    if (f.is<JsonObject>() && f.containsKey("name")) {
+      filename = f["name"].as<String>();
+    } else {
+      filename = f.as<String>();
+    }
+
+    filename.trim();
+    if (filename.length() == 0 || filename.indexOf("..") >= 0 || filename.indexOf("/") >= 0) {
+      continue;
+    }
+
+    String filepath = "/usb/" + filename;
+
+    if (playbackActive && playbackFile == filename) {
+      stopPlayback();
+    }
+
+    if (remove(filepath.c_str()) == 0) {
+      deletedCount++;
+      Serial.print("[BATCH DELETE] Removed: "); 
+      Serial.println(filepath);
+    }
+  }
+
+  loadScheduleFromConfig(); // Sync matrix state
+
+  StaticJsonDocument<128> response;
+  response["ok"] = true;
+  response["deleted"] = deletedCount;
+  String jsonOut;
+  serializeJson(response, jsonOut);
+  sendJson(client, 200, jsonOut);
+}
 
 // Main page ────────────────────────────────────────────────
 // The full HTML/CSS/JS page is stored in flash as a raw string.
@@ -781,6 +970,7 @@ void routeRequest(WiFiClient& client) {
 
   if      (req.method == "GET"  && req.path == "/ping")      handlePing(client);                                        // Connection status checking
   else if (req.method == "GET"  && req.path == "/settings")  handleSettings(client);                                    // Send settings to website for display
+  else if (req.method == "GET"  && req.path == "/time")      handleGetTime(client);                                     // Send current peripheral RTC time to website
   else if (req.method == "GET"  && req.path == "/files")     handleGetFiles(client);                                    // Streams JSON array of audio files to website
   else if (req.method == "GET"  && req.path == "/config")    handleGetConfig(client);                                   // Send persisted schedule + do-not-play to website
   else if (req.method == "POST" && req.path == "/config")    handlePostConfig(client, req.body);                        // Receive and persist schedule + do-not-play from website
@@ -788,6 +978,8 @@ void routeRequest(WiFiClient& client) {
   else if (req.method == "POST" && req.path == "/upload")    handleUpload(client, req.contentType, req.contentLength);  // POST as audio file data is coming to the arduino
   else if (req.method == "POST" && req.path == "/play")      handlePlay(client, req.body);                              // Immediately play a named file, interrupting current playback
   else if (req.method == "POST" && req.path == "/stop")      handleStop(client);                                        // Immediately stop playback and reset audio state
+  else if (req.method == "POST" && req.path == "/delete")    handleDeleteFile(client, req.body);                        // Remove named audio file from USB drive
+  else if (req.method == "POST" && req.path == "/delete-batch") handleDeleteFiles(client, req.body);                    // Allows functionality to remove multiple files form the usb drive at a time
   else if (req.method == "POST" && req.path == "/mountusb")  handleMountUsb(client);                                    // Re-attempt USB mount after hot-plug
   else if (req.method == "GET"  && req.path == "/")          handleRoot(client);                                        // Sends the webpage when needed
   else sendText(client, 404, "Not found");
@@ -817,10 +1009,6 @@ void routeRequest(WiFiClient& client) {
 
 AdvancedDAC   dac0(DAC_PIN);
 WavReader     wavreader;
-
-// Playback state
-static bool   playbackActive = false;
-static String playbackFile   = "";   // currently open file path
 
 // Hour-trigger state, initialised to 0xFF so the first real hour always fires
 static uint8_t lastPlayedHour = 0xFF;
@@ -925,12 +1113,18 @@ bool startPlayback(const String& filename) {
 
 // Stop playback and release DAC ────────────────────────────
 void stopPlayback() {
-  if (!playbackActive) return;
+  // 1. Force hardware & streaming engines to halt regardless of flag state
   dac0.stop();
   wavreader.stop();
-  playbackActive = false;
-  playbackFile   = "";
-  Serial.println("[AUDIO] Playback stopped");
+
+  // 2. Clean up software flags
+  if (playbackActive) {
+    playbackActive = false;
+    playbackFile   = "";
+    Serial.println("[AUDIO] Playback stopped");
+  } else {
+    Serial.println("[AUDIO] Forced stop (playbackActive was false)");
+  }
 }
 
 // Feed one DAC buffer, call every loop() iteration ────────

@@ -153,6 +153,26 @@ const char PAGE[] PROGMEM = R"rawliteral(
     .btn.bad{background:rgba(180,35,24,.10); border-color:var(--fg); box-shadow:var(--shadow-pop)}
     .btn.ghost{background:transparent; border-color:rgba(31,41,55,.35); box-shadow:none;}
     .btn:disabled{opacity:.45; pointer-events:none;}
+
+  
+    /* Delete button style matching the theme design system */
+    .btn.delete { background: rgba(180, 35, 24, 0.12); color: var(--bad); border-color: var(--bad); }
+    .btn.delete:hover { background: rgba(180, 35, 24, 0.25); }
+
+    /* Bulk selection toolbar layout */
+    .bulk-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+      border-radius: var(--r-md);
+      border: var(--bw) solid var(--fg);
+      background: rgba(238,242,241,.85);
+      box-shadow: var(--shadow-pop);
+    }
+
     .tiny{font-size:11px; color:var(--mutedFg); line-height:1.35;}
     .hr{height:0; border-top:var(--bw) dashed rgba(31,41,55,.35); margin:12px 0;}
     .table{width:100%; border-collapse:separate; border-spacing:0; border-radius:var(--r-lg); overflow:hidden; border:var(--bw) solid var(--fg); background:var(--card); box-shadow: 6px 6px 0 0 rgba(216,224,219,.95);}
@@ -305,7 +325,7 @@ const char PAGE[] PROGMEM = R"rawliteral(
               id="defs1">
               <color-profile
                 name="sRGB IEC61966-2.1"
-                xlink:href="data:application/vnd.iccprofile;base64,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"
+                xlink:href="data:application/vnd.iccprofile;base64,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"
                 id="color-profile2" />
               <clipPath
                 clipPathUnits="userSpaceOnUse"
@@ -553,16 +573,26 @@ const char PAGE[] PROGMEM = R"rawliteral(
 
           <div class="hr"></div>
 
+          <div class="bulk-bar" id="bulkBar">
+            <label style="margin:0; display:flex; align-items:center; gap:8px; cursor:pointer;">
+              <input type="checkbox" id="selectAllFiles" style="width:auto; cursor:pointer;" />
+              Select All
+            </label>
+            <span id="selectedCount" class="tiny" style="font-weight:800;">0 files selected</span>
+            <button class="btn delete" id="deleteSelectedBtn" disabled>Delete Selected</button>
+          </div>
+
           <table class="table" aria-label="Audio files">
             <thead>
               <tr>
+                <th style="width:8%"><input type="checkbox" id="headerSelectAll" style="width:auto;" /></th>
                 <th>File</th>
                 <th style="width:18%">Size</th>
-                <th style="width:18%">Actions</th>
+                <th style="width:25%">Actions</th>
               </tr>
             </thead>
             <tbody id="audioTbody">
-              <tr><td colspan="3" class="tiny">Loading…</td></tr>
+              <tr><td colspan="4" class="tiny">Loading…</td></tr>
             </tbody>
           </table>
           <div class="tiny" style="margin-top:10px">
@@ -708,13 +738,107 @@ const char PAGE[] PROGMEM = R"rawliteral(
     let doNotPlay  = [];
     let copiedDay  = null;
     let activeDay  = 0;
+    let selectedFiles = new Set(); //Needed for renderAudioTable(), deleteFiles()
 
     // modal state
     let modalMode    = null;
     let modalAudioId = null;
     let assignHour   = null;
 
+    let deviceTimeOffset = 0; // Difference between unit RTC and client time (ms)
+
     // ── Helpers ───────────────────────────────────────────
+    /**
+    * Updates the visibility and item counter of the bulk action bar 
+    * based on how many files are currently selected in selectedFiles.
+    */
+    function updateBulkBarVisibility() {
+      const countLabel = document.getElementById('selectedCount');
+      const count = selectedFiles.size;
+
+      if (countLabel) {
+        countLabel.textContent = `${count} file${count === 1 ? '' : 's'} selected`;
+      }
+      updateBulkDeleteButton();
+    }
+
+    /**
+    * Triggers audio playback on the SAMD51 DAC via an HTTP request.
+    * @param {string} filename - Name of the audio file to play.
+    */
+    async function playAudioFile(filename) {
+      try {
+        const response = await fetch(`/api/play?file=${encodeURIComponent(filename)}`, {
+          method: 'POST'
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}`);
+        }
+        console.log(`Playback started for: ${filename}`);
+      } catch (error) {
+        console.error(`Failed to play ${filename}:`, error);
+        alert(`Could not start playback for ${filename}`);
+      }
+    }
+
+    /**
+    * Deletes a single audio file from the microcontroller storage.
+    * @param {string} filename - Name of the audio file to delete.
+    */
+    async function deleteSingleFile(filename) {
+      if (!confirm(`Are you sure you want to delete "${filename}"?`)) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/delete?file=${encodeURIComponent(filename)}`, {
+          method: 'DELETE'
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}`);
+        }
+
+        // Clean up state
+        selectedFiles.delete(filename);
+        updateBulkBarVisibility();
+
+        // Refresh file list from SAMD51
+        if (typeof refreshFileList === 'function') {
+          refreshFileList();
+        }
+      } catch (error) {
+        console.error(`Failed to delete ${filename}:`, error);
+        alert(`Error deleting file: ${filename}`);
+      }
+    }
+
+    /**
+    * Deletes all currently selected files (for use with bulk action bar button).
+    */
+    async function deleteSelectedFiles(filenames) {
+      try {
+        const res = await fetch("/api/delete-batch", {
+          method: "POST", // or "DELETE" depending on your API route
+          headers: { 
+            "Content-Type": "application/json" 
+          },
+          body: JSON.stringify({ files: filenames })
+        });
+    
+        if (!res.ok) {
+          const errText = await res.text();
+          console.error("Delete failed:", errText);
+          return;
+        }
+    
+      console.log("Files deleted successfully");
+      } catch (err) {
+        console.error("Network error:", err);
+      }
+    }
+	
     function cryptoRandomId() {
       try {
         return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
@@ -821,6 +945,10 @@ const char PAGE[] PROGMEM = R"rawliteral(
 
         // If device sent current time, pre-fill the manual time fields
         if (data.time) {
+          const unitTime = new Date(data.time).getTime();
+          const localTime = Date.now();
+          deviceTimeOffset = unitTime - localTime;
+
           const [datePart, timePart] = data.time.split("T");
           if (datePart) document.getElementById('dtDate').value = datePart;
           if (timePart) document.getElementById('dtTime').value = timePart;
@@ -988,17 +1116,19 @@ const char PAGE[] PROGMEM = R"rawliteral(
       }
     }
 
-    // ── Renderers ─────────────────────────────────────────
+    // Update renderDeviceClock():
     function renderDeviceClock() {
       const elClock = document.getElementById('deviceClock');
       const elNow   = document.getElementById('deviceNow');
       if (!elClock || !elNow) return;
-      const d  = new Date();
+
+      // Adjusted time calculated with unit offset
+      const d = new Date(Date.now() + deviceTimeOffset); 
       const hh = String(d.getHours()).padStart(2,'0');
       const mm = String(d.getMinutes()).padStart(2,'0');
       const ss = String(d.getSeconds()).padStart(2,'0');
       elClock.textContent = `${hh}:${mm}:${ss}`;
-      elNow.textContent   = nowIsoLocal();
+      elNow.textContent   = d.toISOString();
     }
 
     // ── Device playback request ───────────────────────────
@@ -1024,17 +1154,39 @@ const char PAGE[] PROGMEM = R"rawliteral(
       }
     }
 
+    async function requestStop() {
+    try {
+      const res = await fetch("/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (!res.ok) {
+        const msg = await res.text().catch(() => "");
+        toast("Stop failed: " + (msg || "HTTP " + res.status));
+        return;
+      }
+      toast("Playback stopped");
+    } catch(e) {
+      toast("Stop error: " + e.message);
+    }
+    }
+
     function renderAudioTable() {
       const tb = document.getElementById('audioTbody');
       if (!tb) return;
       if (!audioFiles.length) {
-        tb.innerHTML = `<tr><td colspan="3" class="tiny">No audio files found on USB drive.</td></tr>`;
+        tb.innerHTML = `<tr><td colspan="4" class="tiny">No audio files found on USB drive.</td></tr>`;
         return;
       }
+      
       tb.innerHTML = audioFiles.map((a, idx) => {
         const sw = swatchClass(idx);
+        const isChecked = selectedFiles.has(a.name) ? "checked" : "";
         return `
           <tr>
+            <td>
+              <input type="checkbox" class="file-select-cb" data-name="${escapeHtml(a.name)}" ${isChecked} style="width:auto; cursor:pointer;" />
+            </td>
             <td>
               <div class="row" style="gap:10px">
                 <span class="swatch ${sw}" aria-hidden="true"></span>
@@ -1045,13 +1197,24 @@ const char PAGE[] PROGMEM = R"rawliteral(
             <td>
               <div class="row" style="gap:8px">
                 <button class="btn secondary" data-act="test" data-name="${escapeHtml(a.name)}"
-                  title="Play this file on the device immediately"
-                >Test</button>
+                  title="Play this file on the device immediately">Test</button>
+                <button class="btn delete" data-act="delete" data-name="${escapeHtml(a.name)}"
+                  title="Delete this file from USB drive">Delete</button>
               </div>
             </td>
           </tr>
         `;
       }).join("");
+
+      updateBulkDeleteButton();
+    }
+
+    function updateBulkDeleteButton() {
+      const btn = document.getElementById('deleteSelectedBtn');
+      if (btn) {
+        btn.disabled = selectedFiles.size === 0;
+        btn.textContent = selectedFiles.size > 0 ? `Delete (${selectedFiles.size})` : "Delete Selected";
+      }
     }
 
     function renderDnp() {
@@ -1272,8 +1435,107 @@ const char PAGE[] PROGMEM = R"rawliteral(
       }
     }
 
+    async function deleteFiles(fileNames) {
+      if (!fileNames || fileNames.length === 0) return;
+      if (!confirm(`Are you sure you want to delete ${fileNames.length} file(s)?`)) return;
+
+      try {
+        const res = await fetch("/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ files: fileNames })
+        });
+
+        if (!res.ok) {
+          const err = await res.text().catch(() => "");
+          throw new Error(err || ("HTTP " + res.status));
+        }
+
+        toast(`Deleted ${fileNames.length} file(s)`);
+        fileNames.forEach(fn => selectedFiles.delete(fn));
+        await refreshFileList();
+      } catch(e) {
+        toast("Delete failed: " + e.message);
+      }
+    }
+
     // ── Wiring ────────────────────────────────────────────
     window.addEventListener('DOMContentLoaded', () => {
+
+      // Consolidated Event Delegation for Table Row Actions
+      const audioTbody = document.getElementById('audioTbody');
+      if (audioTbody) {
+        audioTbody.addEventListener('click', (e) => {
+          const target = e.target;
+
+          // 1. Row Checkbox Toggle
+          if (target.classList.contains('file-select-cb')) {
+            const filename = target.dataset.name;
+            if (target.checked) {
+              selectedFiles.add(filename);
+            } else {
+              selectedFiles.delete(filename);
+            }
+            updateBulkBarVisibility();
+            return;
+          }
+
+          // 2. Play / Test Button Click
+          const testBtn = target.closest('button[data-act="test"]');
+          if (testBtn) {
+            const filename = testBtn.dataset.name;
+            requestPlay(filename);
+            return;
+          }
+
+          // 3. Delete Button Click
+          const deleteBtn = target.closest('button[data-act="delete"]');
+          if (deleteBtn) {
+            const filename = deleteBtn.dataset.name;
+            deleteFiles([filename]);
+            return;
+          }
+        });
+      }
+
+      // Header Select All Toggle
+      const headerSelectAll = document.getElementById('headerSelectAll');
+      if (headerSelectAll) {
+        headerSelectAll.addEventListener('change', e => {
+          const checked = e.target.checked;
+          audioFiles.forEach(a => {
+            if (checked) selectedFiles.add(a.name);
+            else selectedFiles.delete(a.name);
+          });
+          const bulkSelectAll = document.getElementById('selectAllFiles');
+          if (bulkSelectAll) bulkSelectAll.checked = checked;
+          renderAudioTable();
+          updateBulkBarVisibility();
+        });
+      }
+
+      // Selection Checkbox Handler
+      const selectAllCb = document.getElementById('selectAllFiles');
+      if (selectAllCb) {
+        selectAllCb.addEventListener('change', e => {
+          const checked = e.target.checked;
+          audioFiles.forEach(a => {
+            if (checked) selectedFiles.add(a.name);
+            else selectedFiles.delete(a.name);
+          });
+          if (headerSelectAll) headerSelectAll.checked = checked;
+          renderAudioTable();
+          updateBulkBarVisibility();
+        });
+      }
+
+      // Delete Selected Action
+      const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+      if (deleteSelectedBtn) {
+        deleteSelectedBtn.addEventListener('click', () => {
+          deleteFiles(Array.from(selectedFiles));
+        });
+      }
 
       // Day tabs
       document.querySelectorAll('.seg button').forEach(btn => {
@@ -1344,17 +1606,6 @@ const char PAGE[] PROGMEM = R"rawliteral(
 
       // Save button — POSTs full schedule + doNotPlay to /config
       document.getElementById('saveSchedule').addEventListener('click', saveConfig);
-
-      // Audio table actions
-      // Test button: immediately plays the file on the device via POST /play.
-      // Uses data-name (filename) rather than data-id since playback is
-      // device-side — no blobUrl or browser audio element needed.
-      document.getElementById('audioTbody').addEventListener('click', e => {
-        const btn = e.target.closest('button');
-        if (!btn) return;
-        const act  = btn.dataset.act;
-        if (act === 'test') requestPlay(btn.dataset.name);
-      });
 
       // ── Upload ────────────────────────────────────────────────
       //
@@ -1579,8 +1830,12 @@ const char PAGE[] PROGMEM = R"rawliteral(
       });
 
       document.getElementById('modalStop').addEventListener('click', () => {
+        // Stop local browser preview player if active
         const player = document.getElementById('player');
         if (player) { player.pause(); player.currentTime = 0; }
+
+        // Send stop command to device hardware
+      requestStop();
       });
 
       // Initial render (empty state while loading)
