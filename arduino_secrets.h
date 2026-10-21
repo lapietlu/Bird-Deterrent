@@ -1094,7 +1094,7 @@ const char PAGE[] PROGMEM = R"rawliteral(
         if (Array.isArray(data.schedule)) {
           for (let d = 0; d < 7; d++) {
             const day = Array.isArray(data.schedule[d]) ? data.schedule[d] : [];
-            for (let s = 0; h < 96; s++) {
+            for (let s = 0; s < 96; s++) {
               schedule[d][s] = (typeof day[s] === "string") ? day[s] : "";
             }
           }
@@ -1368,7 +1368,7 @@ const char PAGE[] PROGMEM = R"rawliteral(
       const currentFilename = schedule[day][hour];
       document.getElementById('modalTitle').textContent = "Assign Hour";
       document.getElementById('aDay').textContent  = DAYS[day].slice(0,3);
-      document.getElementById('aHour').textContent = slotLabel(s);
+      document.getElementById('aHour').textContent = slotLabel(hour);
       const aCur    = document.getElementById('aCurrent');
       const missing = isMissing(currentFilename);
       aCur.textContent = !currentFilename ? "Silent" : missing ? "Missing" : "Set";
@@ -1535,7 +1535,7 @@ const char PAGE[] PROGMEM = R"rawliteral(
             return;
           }
         });
-      }
+      } 
 
       // Header Select All Toggle
       const headerSelectAll = document.getElementById('headerSelectAll');
@@ -1637,7 +1637,7 @@ const char PAGE[] PROGMEM = R"rawliteral(
         // Fill uses filename directly (not id)
         const firstName = audioFiles[0]?.name || "";
         const arr       = Array.from({length:96}, () => "");
-        for (let s=24; s<=79; h++) arr[s] = firstName;
+        for (let s=24; s<=79; s++) arr[s] = firstName;
         schedule[activeDay] = arr;
         renderHours();
         toast('Filled day');
