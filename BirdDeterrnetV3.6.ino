@@ -999,10 +999,10 @@ void routeRequest(WiFiClient& client) {
 //      output (A12) is used.
 //
 // Hour-trigger logic:
-//   checkSchedule() is called from loop(). It reads the current RTC hour and compares against
-//   lastPlayedHour. When the hour changes it looks up the schedule for that day/hour and, if a 
-//   file is assigned and present on the USB drive, starts playback. Future models will replace
-//   this with an API alarm.
+//   checkSchedule() is called from loop(). It computes the current 15-minute slot index (0–95) 
+//   and compares against lastPlayedSlot. When the slot changes it looks up the schedule for that 
+//   day/slot and, if a file is assigned and present on the USB drive, starts playback. Future models 
+//   will replace this with an API alarm.[cite: 1]
 
 #define DAC_PIN       A12
 #define DAC_N_SAMPLES 512   // DMA buffer size - must match wavreader.begin()
@@ -1011,14 +1011,14 @@ AdvancedDAC   dac0(DAC_PIN);
 WavReader     wavreader;
 
 // Hour-trigger state, initialised to 0xFF so the first real hour always fires
-static uint8_t lastPlayedHour = 0xFF;
+static uint8_t lastPlayedSlot = 0xFF;
 
 // Schedule storage (loaded from config.json) ───────────────
 // Mirrors the browser-side schedule[][]: filename per day/hour.
 // Populated by loadScheduleFromConfig() at boot and on each
 // POST /config.  Indexed [day 0-6][hour 0-23].
 // Day 0 = Monday, matching the web UI convention.
-static String scheduleMatrix[7][24];
+static String scheduleMatrix[7][96];
 
 // Load schedule from config.json into scheduleMatrix ───────
 // Called once at boot (after USB mounts) and after every
@@ -1051,8 +1051,8 @@ void loadScheduleFromConfig() {
   buf[sz] = '\0';
   fclose(fp);
 
-  // 2048 to 4096 bytes is sufficient for parsing scheduleMatrix
-  DynamicJsonDocument doc(4096);
+  // Currently 8192 should be enough if issues come up with do not play dates change this to 16384
+  DynamicJsonDocument doc(8192);
   DeserializationError err = deserializeJson(doc, buf);
   
   // FREE BUF IMMEDIATELY to reclaim heap memory before populating matrix
@@ -1067,7 +1067,7 @@ void loadScheduleFromConfig() {
   JsonArray sched = doc["schedule"].as<JsonArray>();
   for (int d = 0; d < 7 && d < (int)sched.size(); d++) {
     JsonArray day = sched[d].as<JsonArray>();
-    for (int h = 0; h < 24 && h < (int)day.size(); h++) {
+    for (int h = 0; h < 96 && (int)day.size(); h++) {
       scheduleMatrix[d][h] = day[h].as<String>();
     }
   }
@@ -1175,9 +1175,11 @@ void checkSchedule() {
   tm t;
   _rtc_localtime(time(NULL), &t, RTC_4_YEAR_LEAP_YEAR_SUPPORT);
 
-  uint8_t currentHour = (uint8_t)t.tm_hour;
-  if (currentHour == lastPlayedHour) return; // same hour, nothing to do
-  lastPlayedHour = currentHour;
+  // Calculate 15-minute slot index (0–95) and ensure we only 
+  // trigger playback once per slot, avoiding repeated triggers.
+  uint8_t currentSlot = (t.tm_hour * 4) + (t.tm_min / 15);
+  if (currentSlot == lastPlayedSlot) return; 
+  lastPlayedSlot = currentSlot;
   
   // tm_wday: 0=Sunday … 6=Saturday.
   // scheduleMatrix uses 0=Monday … 6=Sunday to match the web UI.
@@ -1213,10 +1215,10 @@ void checkSchedule() {
     fclose(fp);
   }
 
-  String filename = scheduleMatrix[dayIndex][currentHour];
+  String filename = scheduleMatrix[dayIndex][currentSlot];
   if (filename.length() == 0) {
-    Serial.print("[SCHED] Hour ");
-    Serial.print(currentHour);
+    Serial.print("[SCHED] Slot ");
+    Serial.print(currentSlot);
     Serial.println(" is silent");
     return;
   }
@@ -1231,7 +1233,7 @@ void checkSchedule() {
   }
   fclose(testFp);
 
-  Serial.print("[SCHED] Hour "); Serial.print(currentHour);
+  Serial.print("[SCHED] Slot "); Serial.print(currentSlot);
   Serial.print(" -> "); Serial.println(filename);
   startPlayback(filename);
 }

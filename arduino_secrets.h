@@ -548,6 +548,27 @@ const char PAGE[] PROGMEM = R"rawliteral(
         </div>
         <div class="body">
 
+          <!-- VOLUME SLIDER SECTION -->
+		<div class="stack" style="margin-bottom: 14px;">
+		<label for="softwareVolume">Software Gain / Volume</label>
+		<div class="row" style="gap: 12px;">
+			<input type="range" id="softwareVolume" min="1" max="10" step="1" value="10" list="volume-ticks" style="flex: 1;" />
+			<datalist id="volume-ticks">
+				<option value="1"></option>
+				<option value="2"></option>
+				<option value="3"></option>
+				<option value="4"></option>
+				<option value="5"></option>
+				<option value="6"></option>
+				<option value="7"></option>
+				<option value="8"></option>
+				<option value="9"></option>
+				<option value="10"></option>
+			</datalist>
+			<span id="volumeValue" class="mono" style="font-weight: 800; min-width: 40px;">10/10</span>
+			</div>
+		</div>
+
           <!-- Drop zone (hidden while upload is in progress) -->
           <div id="uploadZoneWrap">
             <div class="uploadZone" id="uploadZone" role="button" tabindex="0"
@@ -734,7 +755,7 @@ const char PAGE[] PROGMEM = R"rawliteral(
     //   id is browser-only (for DOM keying); not persisted to config.
     //
     let audioFiles = [];
-    let schedule   = Array.from({length:7}, () => Array.from({length:24}, () => ""));
+    let schedule   = Array.from({length:7}, () => Array.from({length:96}, () => ""));
     let doNotPlay  = [];
     let copiedDay  = null;
     let activeDay  = 0;
@@ -746,6 +767,9 @@ const char PAGE[] PROGMEM = R"rawliteral(
     let assignHour   = null;
 
     let deviceTimeOffset = 0; // Difference between unit RTC and client time (ms)
+
+    let audioCtx = null; //Needed for Software volume control bar 
+    let gainNode = null;
 
     // ── Helpers ───────────────────────────────────────────
     /**
@@ -856,8 +880,12 @@ const char PAGE[] PROGMEM = R"rawliteral(
       return (i===0 ? x.toFixed(0) : x.toFixed(1)) + " " + u[i];
     }
 
-    function hourLabel(h) { return String(h).padStart(2,'0') + ":00"; }
-
+    function slotLabel(slot) {
+      const totalMinutes = slot * 15;
+      const hh = Math.floor(totalMinutes / 60);
+      const mm = totalMinutes % 60;
+      return String(hh).padStart(2,'0') + ":" + String(mm).padStart(2,'0');
+    }
     function nowIsoLocal() {
       const d = new Date();
       const tz = -d.getTimezoneOffset();
@@ -916,6 +944,18 @@ const char PAGE[] PROGMEM = R"rawliteral(
     }
 
     function swatchClass(i) { return ["v","p","y","g"][i % 4]; }
+
+    // ── Software Volume Control Setup ─────────────────────
+      function initWebAudio() {
+      if (audioCtx) return;
+      try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        gainNode = audioCtx.createGain();
+        gainNode.connect(audioCtx.destination);
+      } catch (e) {
+        console.warn("Web Audio API not supported:", e);
+      }
+    }
 
     // ── Device init sequence ──────────────────────────────
     //
@@ -1054,8 +1094,8 @@ const char PAGE[] PROGMEM = R"rawliteral(
         if (Array.isArray(data.schedule)) {
           for (let d = 0; d < 7; d++) {
             const day = Array.isArray(data.schedule[d]) ? data.schedule[d] : [];
-            for (let h = 0; h < 24; h++) {
-              schedule[d][h] = (typeof day[h] === "string") ? day[h] : "";
+            for (let s = 0; h < 96; s++) {
+              schedule[d][s] = (typeof day[s] === "string") ? day[s] : "";
             }
           }
         }
@@ -1241,34 +1281,33 @@ const char PAGE[] PROGMEM = R"rawliteral(
       t.textContent = DAYS[activeDay];
       const act     = schedule[activeDay].filter(v => v !== "").length;
       const missing = schedule[activeDay].filter(v => isMissing(v)).length;
-      s.textContent = `24 blocks • ${act} active${missing ? ` • ${missing} missing` : ""}`;
+      s.textContent = `96 blocks • ${act} active${missing ? ` • ${missing} missing` : ""}`;
     }
 
     function renderHours() {
       const box = document.getElementById('hours');
       if (!box) return;
       const rows = [];
-      for (let h=0; h<24; h++) {
-        const filename = schedule[activeDay][h];
+      for (let s=0; s<96; s++) {
+        const filename = schedule[activeDay][s];
         const lbl      = fileLabel(filename);
         const meta     = fileMeta(filename);
         const isSilent = !filename;
         const missing  = isMissing(filename);
-        // Tag reflects the slot state: silent, missing file, or assigned
         const tagClass = isSilent ? "silent" : missing ? "missing" : "";
         const tagText  = isSilent ? "Silent"  : missing ? "Missing" : "Edit";
         rows.push(`
           <div class="hrow">
-            <div class="t">${hourLabel(h)}</div>
-            <div class="assign" role="button" tabindex="0" data-act="assign" data-hour="${h}" aria-label="Assign audio for ${hourLabel(h)}">
+            <div class="t">${slotLabel(s)}</div>
+            <div class="assign" role="button" tabindex="0" data-act="assign" data-hour="${s}" aria-label="Assign audio for ${slotLabel(s)}">
               <div class="left">
                 <div class="name">${escapeHtml(lbl)}</div>
                 <div class="meta">${escapeHtml(meta)}</div>
               </div>
               <span class="tag ${tagClass}">${tagText}</span>
             </div>
-          </div>
-        `);
+            </div>
+          `);
       }
       box.innerHTML = rows.join("");
       renderDayHeader();
@@ -1329,7 +1368,7 @@ const char PAGE[] PROGMEM = R"rawliteral(
       const currentFilename = schedule[day][hour];
       document.getElementById('modalTitle').textContent = "Assign Hour";
       document.getElementById('aDay').textContent  = DAYS[day].slice(0,3);
-      document.getElementById('aHour').textContent = hourLabel(hour);
+      document.getElementById('aHour').textContent = slotLabel(s);
       const aCur    = document.getElementById('aCurrent');
       const missing = isMissing(currentFilename);
       aCur.textContent = !currentFilename ? "Silent" : missing ? "Missing" : "Set";
@@ -1597,8 +1636,8 @@ const char PAGE[] PROGMEM = R"rawliteral(
       document.getElementById('fillDefault').addEventListener('click', () => {
         // Fill uses filename directly (not id)
         const firstName = audioFiles[0]?.name || "";
-        const arr       = Array.from({length:24}, () => "");
-        for (let h=6; h<=19; h++) arr[h] = firstName;
+        const arr       = Array.from({length:96}, () => "");
+        for (let s=24; s<=79; h++) arr[s] = firstName;
         schedule[activeDay] = arr;
         renderHours();
         toast('Filled day');
@@ -1804,6 +1843,47 @@ const char PAGE[] PROGMEM = R"rawliteral(
       document.getElementById('modal').addEventListener('click', e => {
         if (e.target.id === 'modal') closeModal();
       });
+
+      // ── Software Volume Slider & Player Routing ───────────
+      const volumeSlider = document.getElementById('softwareVolume');
+      const volumeValue = document.getElementById('volumeValue');
+      
+		if (volumeSlider) {
+		volumeSlider.addEventListener('input', (e) => {
+			const val = parseInt(e.target.value, 10);
+    
+			// Update display text to show the 1-10 value
+			if (volumeValue) {
+			volumeValue.textContent = `${val}/10`;
+			}
+    
+			// Map 1-10 to a gain float between 0.1 and 1.0
+			const gainVal = val / 10;
+    
+			if (gainNode && audioCtx) {
+		gainNode.gain.setValueAtTime(gainVal, audioCtx.currentTime);
+		}
+		});
+	}
+
+      const playerElement = document.getElementById('player');
+      if (playerElement) {
+        playerElement.addEventListener('play', () => {
+          initWebAudio();
+          if (audioCtx && gainNode && !playerElement._sourceConnected) {
+            try {
+              const source = audioCtx.createMediaElementSource(playerElement);
+              source.connect(gainNode);
+              playerElement._sourceConnected = true;
+            } catch (err) {
+              // Safe fallback if already connected
+            }
+          }
+          if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume();
+          }
+        });
+      }
 
       // Play button: behaviour depends on which modal panel is open.
       // - 'assign' panel: play the file assigned to the current hour slot,
