@@ -5,13 +5,13 @@
 //         Arduino_AdvancedAnalog 
 // ============================================================
 
-// Last updated by Dan Burns, 10/7/2026
+// Last updated by Dan Burns, 10/21/2026
 // Refactored loadScheduleFromConfig() to prevent heap exhaustion (Out of Memory / OOM).
 // Allocates temporary heap buffer to read raw config.json file from USB storage.
-// Parses JSON contents into DynamicJsonDocument (4096 bytes).
-// Immediately frees raw file buffer (free(buf)) before matrix population to reclaim RAM.
-// Populates scheduleMatrix[7][24] safely without exceeding available heap memory.
-// Stop function actually works now on the website when playing an audio
+// Parses JSON contents into DynamicJsonDocument and immediately frees raw file buffer (free(buf)) to reclaim RAM.
+// Populates scheduleMatrix[7][96] (15-minute slot intervals) safely without exceeding available heap memory.
+// Added batch delete support (/delete-batch) for efficient multi-file management from the web UI.
+// Fixed and verified stop playback functionality via the website control panel.
 
 // Keywords:
 // UPDATE: Temporary values, update before final version
@@ -441,6 +441,24 @@ void handleSyncTime(WiFiClient& client, const String& body) {
   sendText(client, 200, "OK");
 }
 
+// POST /volume body: { "volume": 5 }
+void handleVolume(WiFiClient& client, const String& body) {
+  StaticJsonDocument<128> doc;
+  DeserializationError err = deserializeJson(doc, body);
+  if (err) {
+    sendText(client, 400, "Invalid JSON");
+    return;
+  }
+  
+  int vol = doc["volume"] | 10;
+  softwareVolume = constrain(vol, 1, 10);
+  
+  Serial.print("[AUDIO] Volume set to: ");
+  Serial.println(softwareVolume);
+  
+  sendJson(client, 200, "{\"ok\":true}");
+}
+
 // Config file - read/write /usb/config.json ────────────────
 // Example format:
 // {
@@ -778,6 +796,7 @@ void handlePlay(WiFiClient& client, const String& body) {
 // Playback state need to be declared before use
 static bool   playbackActive = false;
 static String playbackFile   = "";   // currently open file path
+static int    softwareVolume = 10;  // for audio volume control
 
 
 // POST /stop
@@ -978,6 +997,7 @@ void routeRequest(WiFiClient& client) {
   else if (req.method == "POST" && req.path == "/upload")    handleUpload(client, req.contentType, req.contentLength);  // POST as audio file data is coming to the arduino
   else if (req.method == "POST" && req.path == "/play")      handlePlay(client, req.body);                              // Immediately play a named file, interrupting current playback
   else if (req.method == "POST" && req.path == "/stop")      handleStop(client);                                        // Immediately stop playback and reset audio state
+  else if (req.method == "POST" && req.path == "/volume")    handleVolume(client, req.body);                            // Allows functionality for 10 notch volume control to the board
   else if (req.method == "POST" && req.path == "/delete")    handleDeleteFile(client, req.body);                        // Remove named audio file from USB drive
   else if (req.method == "POST" && req.path == "/delete-batch") handleDeleteFiles(client, req.body);                    // Allows functionality to remove multiple files form the usb drive at a time
   else if (req.method == "POST" && req.path == "/mountusb")  handleMountUsb(client);                                    // Re-attempt USB mount after hot-plug
@@ -1146,14 +1166,19 @@ void playbackTick() {
   SampleBuffer dacbuf = dac0.dequeue();
   SampleBuffer pcmbuf = wavreader.read();
 
+  float volumeMultiplier = (float)softwareVolume / 10.0f;
+
   const int channels = wavreader.channels();
   for (size_t i = 0; i < DAC_N_SAMPLES; i++) {
     if (channels == 1) {
-      // Mono: shift signed 16-bit to unsigned 12-bit
-      dacbuf[i] = ((unsigned int)((int16_t)pcmbuf[i] + 32768)) >> 4;
+      // Mono: shift signed 16-bit to unsigned 12-bit with volume scaling
+      int32_t sample = (int16_t)pcmbuf[i];
+      sample = (int32_t)(sample * volumeMultiplier); // <--- APPLIED HERE
+      dacbuf[i] = ((unsigned int)(sample + 32768)) >> 4;
     } else {
-      // Stereo: average L+R channels then convert
+      // Stereo: average L+R channels then convert with volume scaling
       int32_t avg = ((int16_t)pcmbuf[i * 2] + (int16_t)pcmbuf[i * 2 + 1]) / 2;
+      avg = (int32_t)(avg * volumeMultiplier);       // <--- APPLIED HERE
       dacbuf[i]   = ((unsigned int)(avg + 32768)) >> 4;
     }
   }

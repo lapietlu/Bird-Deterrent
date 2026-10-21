@@ -1849,21 +1849,29 @@ const char PAGE[] PROGMEM = R"rawliteral(
       const volumeValue = document.getElementById('volumeValue');
       
 		if (volumeSlider) {
-		volumeSlider.addEventListener('input', (e) => {
-			const val = parseInt(e.target.value, 10);
+        volumeSlider.addEventListener('input', (e) => {
+          const val = parseInt(e.target.value, 10);
     
-			// Update display text to show the 1-10 value
-			if (volumeValue) {
-			volumeValue.textContent = `${val}/10`;
-			}
+          // Update display text to show the 1-10 value
+          if (volumeValue) {
+            volumeValue.textContent = `${val}/10`;
+          }
     
-			// Map 1-10 to a gain float between 0.1 and 1.0
-			const gainVal = val / 10;
+          // Map 1-10 to a gain float between 0.1 and 1.0 (for browser preview)
+          const gainVal = val / 10;
     
-			if (gainNode && audioCtx) {
-		gainNode.gain.setValueAtTime(gainVal, audioCtx.currentTime);
-		}
-		});
+          if (gainNode && audioCtx) {
+            gainNode.gain.setValueAtTime(gainVal, audioCtx.currentTime);
+          }
+
+          // Send volume change to the Arduino backend hardware
+          fetch('/volume', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ volume: val })
+          }).catch(err => console.warn("Failed to update volume on device", err));
+        });
+      }
 	}
 
       const playerElement = document.getElementById('player');
