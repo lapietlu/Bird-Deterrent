@@ -72,6 +72,10 @@ bool usbMounted = false;
 #define CONFIG_PATH     "/usb/config.json"
 #define CONFIG_TMP_PATH "/usb/config.tmp"
 
+
+// Volume route handler ────────────────────────────────────────
+int softwareVolume = 10; // Default max volume (1 to 10)
+
 // RTC helpers ──────────────────────────────────────────────
 void rtcSetDefault() {
   // Default compile-time clock so the device isn't epoch-zero
@@ -796,8 +800,6 @@ void handlePlay(WiFiClient& client, const String& body) {
 // Playback state need to be declared before use
 static bool   playbackActive = false;
 static String playbackFile   = "";   // currently open file path
-static int    softwareVolume = 10;  // for audio volume control
-
 
 // POST /stop
 // Immediately halts audio playback, stops the DAC and WAV reader, and resets playback state.
@@ -1327,6 +1329,32 @@ void setup() {
   Serial.print("[WDT] Watchdog started (");
   Serial.print(WDT_TIMEOUT_MS);
   Serial.println(" ms)");
+
+  server.on("/volume", HTTP_POST, []() {
+    // Check if the request body is present
+    if (!server.hasArg("plain")) {
+        server.send(400, "text/plain", "Bad Request");
+        return;
+    }
+    
+    String body = server.arg("plain");
+    StaticJsonDocument<200> doc;
+    DeserializationError error = deserializeJson(doc, body);
+    
+    if (!error && doc.containsKey("volume")) {
+        // Use softwareVolume here so it talks to playbackTick()
+        softwareVolume = doc["volume"].as<int>();
+        softwareVolume = constrain(softwareVolume, 1, 10); // Enforce 1-10 bounds
+      
+        // Keep serial debug statements short and clean to avoid lockups
+        Serial.print("New Volume Set: ");
+        Serial.println(softwareVolume);
+      
+        server.send(200, "text/plain", "OK");
+    } else {
+        server.send(400, "text/plain", "Invalid JSON");
+    }
+  });
 }
 
 // Our loop monitors the client to ensure server connection;
