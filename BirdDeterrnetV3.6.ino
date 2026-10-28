@@ -1330,31 +1330,6 @@ void setup() {
   Serial.print(WDT_TIMEOUT_MS);
   Serial.println(" ms)");
 
-  server.on("/volume", HTTP_POST, []() {
-    // Check if the request body is present
-    if (!server.hasArg("plain")) {
-        server.send(400, "text/plain", "Bad Request");
-        return;
-    }
-    
-    String body = server.arg("plain");
-    StaticJsonDocument<200> doc;
-    DeserializationError error = deserializeJson(doc, body);
-    
-    if (!error && doc.containsKey("volume")) {
-        // Use softwareVolume here so it talks to playbackTick()
-        softwareVolume = doc["volume"].as<int>();
-        softwareVolume = constrain(softwareVolume, 1, 10); // Enforce 1-10 bounds
-      
-        // Keep serial debug statements short and clean to avoid lockups
-        Serial.print("New Volume Set: ");
-        Serial.println(softwareVolume);
-      
-        server.send(200, "text/plain", "OK");
-    } else {
-        server.send(400, "text/plain", "Invalid JSON");
-    }
-  });
 }
 
 // Our loop monitors the client to ensure server connection;

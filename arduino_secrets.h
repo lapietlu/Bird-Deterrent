@@ -1872,7 +1872,6 @@ const char PAGE[] PROGMEM = R"rawliteral(
           }).catch(err => console.warn("Failed to update volume on device", err));
         });
       }
-	}
 
       const playerElement = document.getElementById('player');
       if (playerElement) {
